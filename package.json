@@ -1,7 +1,7 @@
 {
   "name": "draftsapp-mcp",
-  "version": "1.0.0",
-  "description": "MCP server for Drafts app x-callback-url integration",
+  "version": "2.0.0",
+  "description": "MCP server for Drafts app integration via Apple Shortcuts",
   "type": "module",
   "main": "build/index.js",
   "bin": {
@@ -21,8 +21,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.4",
-    "open": "^10.1.0"
+    "@modelcontextprotocol/sdk": "^1.0.4"
   },
   "devDependencies": {
     "@types/node": "^22.10.1",

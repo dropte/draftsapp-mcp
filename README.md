@@ -1,11 +1,23 @@
 # Drafts App MCP Server
 
-A Model Context Protocol (MCP) server that provides tools for interacting with the [Drafts app](https://getdrafts.com/) via its x-callback-url scheme.
+A Model Context Protocol (MCP) server for integrating [Drafts app](https://getdrafts.com/) with AI assistants via **Apple Shortcuts**.
+
+## Why Shortcuts?
+
+This server uses Apple Shortcuts instead of x-callback-url because shortcuts can:
+- ✅ **List all drafts** (not just individual ones)
+- ✅ **Search and filter** drafts with complex queries
+- ✅ **Return structured JSON** data directly
+- ✅ **Access all draft properties** (tags, dates, content, etc.)
+- ✅ **No callback servers needed** - direct, synchronous responses
+- ✅ **More powerful and flexible** than URL schemes
 
 ## Requirements
 
-- **Node.js 18 or later** (required by @modelcontextprotocol/sdk)
-- Drafts app (iOS or macOS)
+- **macOS 12 (Monterey) or later** (for `shortcuts` CLI)
+- **Node.js 18 or later**
+- **Drafts app** (macOS version)
+- **Shortcuts app** (pre-installed on macOS)
 - An MCP-compatible client (e.g., Claude Desktop)
 
 ### Checking Your Node Version
@@ -14,59 +26,63 @@ A Model Context Protocol (MCP) server that provides tools for interacting with t
 node --version
 ```
 
-If you're using an older version of Node.js, upgrade with nvm:
+If you're using an older version, upgrade with nvm:
 
 ```bash
-# Install Node.js 20 LTS (recommended)
 nvm install 20
 nvm use 20
 nvm alias default 20
 ```
 
-## Overview
-
-This MCP server wraps the Drafts app's URL scheme functionality, allowing AI assistants and other MCP clients to:
-
-- Create new drafts and get their UUIDs
-- Retrieve existing drafts by UUID
-- Get content from the currently active draft
-- Search drafts
-- Use dictation and get transcribed text
-- Scan documents and get OCR text
-- Arrange text with templates
-- Run actions
-- And more!
-
-The server includes a **built-in callback handler** that:
-1. Opens Drafts URLs automatically
-2. Receives x-callback-url responses via a local HTTP server
-3. Returns the actual data to your MCP client
-
-This means you get real data back (draft content, UUIDs, etc.) instead of just URL strings!
-
 ## Installation
 
-### Option 1: Install via npm (recommended)
-
-```bash
-npm install -g draftsapp-mcp
-```
-
-### Option 2: Install from source
+### 1. Install the MCP Server
 
 ```bash
 git clone <repository-url>
 cd draftsapp-mcp
 npm install
 npm run build
-npm link
 ```
+
+### 2. Set Up Shortcuts
+
+**This is the key step!** You need to create shortcuts that the MCP server will call.
+
+See **[SHORTCUTS_SETUP.md](SHORTCUTS_SETUP.md)** for detailed instructions on creating the required shortcuts.
+
+**Quick summary** - Create these 5 shortcuts in the Shortcuts app:
+
+1. **"Drafts - Get All"** - Returns list of drafts as JSON
+2. **"Drafts - Search"** - Searches drafts by query
+3. **"Drafts - Get by UUID"** - Gets specific draft by UUID
+4. **"Drafts - Get Current"** - Gets currently active draft
+5. **"Drafts - Create"** - Creates a new draft
+
+Each shortcut is simple (3-5 actions) and uses Drafts' built-in Shortcut actions.
+
+### 3. Test Shortcuts
+
+Before using with the MCP server, test that your shortcuts work:
+
+```bash
+# List your shortcuts
+shortcuts list | grep "Drafts -"
+
+# Test getting all drafts
+shortcuts run "Drafts - Get All"
+
+# Test search
+shortcuts run "Drafts - Search" -i "meeting"
+```
+
+If these work, you're ready to use the MCP server!
 
 ## Configuration
 
 ### For Claude Desktop
 
-Add to your `claude_desktop_config.json`:
+Add to your `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
@@ -79,7 +95,7 @@ Add to your `claude_desktop_config.json`:
 }
 ```
 
-**Important:** If Claude Desktop is using an old Node.js version, you can specify the full path to a newer Node.js installation:
+**With specific Node version:**
 
 ```json
 {
@@ -92,71 +108,35 @@ Add to your `claude_desktop_config.json`:
 }
 ```
 
-To find your Node.js path, run: `which node` (after activating the correct Node version with nvm)
-
-Or if installed globally:
-
-```json
-{
-  "mcpServers": {
-    "drafts": {
-      "command": "draftsapp-mcp"
-    }
-  }
-}
-```
-
-### For other MCP clients
-
-Configure the server to run via stdio transport using the command:
-
-```bash
-node /path/to/draftsapp-mcp/build/index.js
-```
+Find your Node path with: `which node`
 
 ## Available Tools
 
-### `drafts_create`
+### `drafts_list`
 
-Creates a new draft in Drafts app.
+Lists drafts from the Drafts app.
 
 **Parameters:**
-- `text` (optional): Initial text content. Use `||clipboard||` to insert clipboard contents.
-- `prepend` (optional): Text to prepend to the draft
-- `append` (optional): Text to append to the draft
-- `tag` (optional): Tag to apply to the draft
-- `action` (optional): Action name to run after creating the draft
-- `allowEmpty` (optional): Allow empty draft before running action
-- `x-success` (optional): Callback URL for successful creation
-- `x-error` (optional): Callback URL for errors
-- `x-cancel` (optional): Callback URL for cancellation
-- `retParam` (optional): Override default return parameter name
+- `limit` (optional): Maximum number of drafts to return (default: 20)
 
 **Example:**
-```json
-{
-  "text": "My new draft content",
-  "tag": "important"
-}
+```
+List my 10 most recent drafts
 ```
 
-### `drafts_get`
-
-Retrieves content of an existing draft by UUID.
-
-**Parameters:**
-- `uuid` (required): UUID of the draft to retrieve
-- `x-success` (optional): Callback URL to receive draft content
-- `x-error` (optional): Callback URL for errors
-- `retParam` (optional): Override default return parameter name
-
-### `drafts_get_current`
-
-Gets information about the currently active draft in Drafts. Returns uuid, url, title, and content.
-
-**Parameters:**
-- `x-success` (optional): Callback URL to receive draft information
-- `x-error` (optional): Callback URL for errors
+**Returns:**
+```json
+[
+  {
+    "uuid": "ABC-123",
+    "content": "Meeting notes...",
+    "tags": ["work", "meeting"],
+    "created": "2025-01-15",
+    "modified": "2025-01-15"
+  },
+  ...
+]
+```
 
 ### `drafts_search`
 
@@ -164,135 +144,172 @@ Searches for drafts matching a query.
 
 **Parameters:**
 - `query` (required): Search query string
-- `tag` (optional): Filter results by tag
-- `x-success` (optional): Callback URL for results
-- `x-error` (optional): Callback URL for errors
 
-### `drafts_dictate`
+**Example:**
+```
+Search my drafts for "project ideas"
+```
 
-Starts dictation and passes the transcribed text to the callback.
+### `drafts_get`
 
-**Parameters:**
-- `locale` (optional): Locale for dictation (e.g., "en-US", "es-ES")
-- `x-success` (optional): Callback URL to receive dictated text
-- `x-error` (optional): Callback URL for errors
-- `x-cancel` (optional): Callback URL for cancellation
-- `retParam` (optional): Override default return parameter name
-
-### `drafts_scan_document`
-
-Starts document scanning and passes the scanned text to the callback.
+Retrieves a specific draft by UUID.
 
 **Parameters:**
-- `x-success` (optional): Callback URL to receive scanned text
-- `x-error` (optional): Callback URL for errors
-- `x-cancel` (optional): Callback URL for cancellation
-- `retParam` (optional): Override default return parameter name
+- `uuid` (required): UUID of the draft
 
-### `drafts_arrange`
+**Example:**
+```
+Get draft with UUID ABC-123
+```
 
-Arranges text using a template and sends the result to the callback.
+### `drafts_get_current`
 
-**Parameters:**
-- `text` (required): Text to arrange
-- `template` (required): Template for arrangement
-- `x-success` (optional): Callback URL to receive arranged text
-- `x-error` (optional): Callback URL for errors
-- `retParam` (optional): Override default return parameter name
+Gets the currently active/open draft in Drafts.
 
-### `drafts_open`
+**Example:**
+```
+What's my current draft in Drafts?
+```
 
-Opens an existing draft by UUID in the Drafts app.
+### `drafts_create`
 
-**Parameters:**
-- `uuid` (required): UUID of the draft to open
-
-### `drafts_run_action`
-
-Runs a named action on text content in Drafts.
+Creates a new draft.
 
 **Parameters:**
-- `action` (required): Name of the action to run
-- `text` (optional): Text content to run the action on
-- `allowEmpty` (optional): Allow empty content
+- `text` (required): Content of the draft
+- `tags` (optional): Array of tags
+
+**Example:**
+```
+Create a draft with "Buy milk" tagged as "shopping"
+```
+
+**Returns:**
+```json
+{
+  "uuid": "NEW-UUID",
+  "success": true
+}
+```
+
+### `drafts_run_shortcut`
+
+Runs any custom Drafts-related shortcut by name.
+
+**Parameters:**
+- `name` (required): Name of the shortcut
+- `input` (optional): Input to pass to the shortcut
+
+**Example:**
+```
+Run my custom shortcut "Drafts - Export Weekly Notes"
+```
 
 ## Usage Examples
 
-### Creating a Draft with Content
+Once set up with Claude Desktop:
 
-When you ask an AI assistant using this MCP server:
+**"Show me my 5 most recent drafts"**
+- Calls `drafts_list` with limit: 5
+- Returns JSON array of drafts
 
-> "Create a new draft in Drafts with the text 'Meeting notes for today'"
+**"Search my drafts for todos"**
+- Calls `drafts_search` with query: "todos"
+- Returns matching drafts
 
-The server generates:
-```
-drafts://x-callback-url/create?text=Meeting%20notes%20for%20today
-```
+**"What am I currently working on in Drafts?"**
+- Calls `drafts_get_current`
+- Returns the active draft
 
-### Using Clipboard Content
-
-> "Create a draft with clipboard content and tag it as 'web-clip'"
-
-Generates:
-```
-drafts://x-callback-url/create?text=%7C%7Cclipboard%7C%7C&tag=web-clip
-```
-
-### Retrieving a Draft
-
-> "Get the draft with UUID abc-123-def"
-
-Generates:
-```
-drafts://x-callback-url/get?uuid=abc-123-def
-```
-
-### Searching Drafts
-
-> "Search for drafts containing 'meeting notes' with tag 'work'"
-
-Generates:
-```
-drafts://x-callback-url/search?query=meeting%20notes&tag=work
-```
+**"Create a draft that says 'Call dentist tomorrow'"**
+- Calls `drafts_create` with text
+- Returns UUID of new draft
 
 ## How It Works
 
-1. **MCP client calls a tool** (e.g., `drafts_get_current`)
-2. **Server starts a local callback server** on an available port (e.g., `http://localhost:49597`)
-3. **Server generates a Drafts URL** with callback URLs pointing to the local server
-4. **Server opens the URL** which launches the Drafts app
-5. **Drafts performs the action** (e.g., gets the current draft)
-6. **Drafts calls back** to the local server with the results
-7. **Server receives the data** and returns it to the MCP client
-
-### Example Flow
-
 ```
-MCP Client → drafts_get_current()
-    ↓
-Server generates: drafts://x-callback-url/getCurrentDraft?x-success=http://localhost:49597/callback?id=abc123
-    ↓
-Server opens URL → Drafts app opens
-    ↓
-Drafts gets current draft
-    ↓
-Drafts calls: http://localhost:49597/callback?id=abc123&uuid=XYZ&content=Hello%20World
-    ↓
-Server receives callback → Returns data to client
-    ↓
-Client gets: { uuid: "XYZ", content: "Hello World" }
+You → Claude Desktop → MCP Server → shortcuts CLI → Drafts App
+                                         ↓
+                     JSON data ← ← ← ← ←
 ```
 
-## x-callback-url Support
+1. You ask Claude to interact with Drafts
+2. Claude calls an MCP tool
+3. MCP server runs a Shortcuts command: `shortcuts run "Drafts - Get All"`
+4. Shortcuts executes actions in the Drafts app
+5. Shortcuts returns JSON data
+6. MCP server returns data to Claude
+7. Claude presents the information to you
 
-The server automatically handles x-callback-url callbacks:
+No callbacks, no web servers, no complexity - just direct command execution!
 
-- **x-success**: Automatically set to receive successful results
-- **x-error**: Automatically set to receive error messages
-- **x-cancel**: Automatically set to handle user cancellation
+## Troubleshooting
 
-All callbacks are handled internally and the appropriate data or error is returned to the MCP client.
+### "Shortcut not found"
+
+Make sure you've created the required shortcuts in the Shortcuts app. The names must match exactly (case-sensitive):
+- "Drafts - Get All"
+- "Drafts - Search"
+- "Drafts - Get by UUID"
+- "Drafts - Get Current"
+- "Drafts - Create"
+
+### "shortcuts: command not found"
+
+You're on macOS 11 or earlier. The `shortcuts` CLI requires macOS 12 (Monterey) or later.
+
+### "Permission denied"
+
+Grant Terminal (or Claude) permission to run shortcuts:
+- System Settings → Privacy & Security → Automation
+
+### "Invalid JSON" or "Failed to parse"
+
+Your shortcut isn't returning valid JSON. Make sure your shortcut:
+1. Uses **"Get Dictionary from Input"** or **"Dictionary"** action
+2. Has **"Output"** action as the last step
+3. Returns structured data, not plain text
+
+Test the shortcut manually in the Shortcuts app to verify its output.
+
+### No drafts returned
+
+- Check that Drafts app is installed and has drafts
+- Run the shortcut manually: `shortcuts run "Drafts - Get All"`
+- Make sure your shortcut has the right permissions to access Drafts
+
+## Advanced Usage
+
+### Custom Shortcuts
+
+You can create custom shortcuts for specific workflows:
+
+**"Drafts - Get Tasks"** (Get drafts tagged with #task):
+```
+1. Get Drafts where Tags contains "task"
+2. Get Details (UUID, Content, Tags)
+3. Dictionary with details
+4. Output as JSON
+```
+
+**"Drafts - Weekly Review"** (Get drafts from last 7 days):
+```
+1. Get Drafts modified in last 7 days
+2. Get Details
+3. Output as JSON
+```
+
+Then call them with: `drafts_run_shortcut` with name: "Drafts - Weekly Review"
+
+### Modifying Shortcuts
+
+You can customize the built-in shortcuts:
+- Change the limit (default 20 drafts)
+- Add more fields (folder, flagged status, etc.)
+- Filter by workspace or folder
+- Sort by different criteria
+
+Just update the shortcut in Shortcuts app - the MCP server will use the latest version.
 
 ## Development
 
@@ -308,17 +325,32 @@ npm run build
 npm run watch
 ```
 
-## Requirements
+### Test Shortcuts Integration
 
-- Node.js 18 or later
-- Drafts app (iOS or macOS)
-- An MCP-compatible client (e.g., Claude Desktop)
+```bash
+# Check if shortcuts CLI is available
+which shortcuts
+
+# List Drafts shortcuts
+shortcuts list | grep "Drafts -"
+
+# Test a shortcut
+shortcuts run "Drafts - Get All"
+```
+
+## Files
+
+- `src/index.ts` - Main MCP server
+- `src/shortcuts-runner.ts` - Shortcuts CLI integration
+- `src/types.ts` - TypeScript type definitions
+- `SHORTCUTS_SETUP.md` - Detailed shortcuts setup guide
 
 ## References
 
-- [Drafts URL Schemes Documentation](https://docs.getdrafts.com/docs/automation/urlschemes)
-- [x-callback-url Specification](http://x-callback-url.com/)
+- [Drafts Documentation](https://docs.getdrafts.com/)
+- [Apple Shortcuts User Guide](https://support.apple.com/guide/shortcuts-mac/)
 - [Model Context Protocol](https://modelcontextprotocol.io/)
+- [Drafts Scripting](https://docs.getdrafts.com/docs/automation/scripting)
 
 ## License
 

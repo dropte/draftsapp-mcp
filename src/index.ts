@@ -7,33 +7,20 @@ import {
   ListToolsRequestSchema,
   Tool,
 } from '@modelcontextprotocol/sdk/types.js';
-import { randomUUID } from 'crypto';
-import open from 'open';
-import { buildDraftsUrl, CLIPBOARD_MARKER } from './url-builder.js';
-import { getCallbackServer } from './callback-server.js';
-import type {
-  CreateDraftParams,
-  GetDraftParams,
-  SearchParams,
-  DictateParams,
-  ArrangeParams,
-  OpenDraftParams,
-  RunActionParams,
-  CallbackParams,
-} from './types.js';
+import { runShortcut, isShortcutsAvailable, listShortcuts } from './shortcuts-runner.js';
 
 /**
- * MCP Server for Drafts app integration with callback support
+ * MCP Server for Drafts app integration via Apple Shortcuts
  */
 class DraftsAppServer {
   private server: Server;
-  private callbackServer = getCallbackServer();
+  private shortcutsAvailable: boolean = false;
 
   constructor() {
     this.server = new Server(
       {
         name: 'draftsapp-mcp',
-        version: '1.0.0',
+        version: '2.0.0',
       },
       {
         capabilities: {
@@ -47,7 +34,6 @@ class DraftsAppServer {
     // Error handling
     this.server.onerror = (error) => console.error('[MCP Error]', error);
     process.on('SIGINT', async () => {
-      await this.callbackServer.stop();
       await this.server.close();
       process.exit(0);
     });
@@ -65,24 +51,18 @@ class DraftsAppServer {
 
       try {
         switch (name) {
-          case 'drafts_create':
-            return await this.handleCreateDraft(args as unknown as CreateDraftParams);
-          case 'drafts_get':
-            return await this.handleGetDraft(args as unknown as GetDraftParams);
-          case 'drafts_get_current':
-            return await this.handleGetCurrentDraft(args as unknown as CallbackParams);
+          case 'drafts_list':
+            return await this.handleListDrafts(args as any);
           case 'drafts_search':
-            return await this.handleSearch(args as unknown as SearchParams);
-          case 'drafts_dictate':
-            return await this.handleDictate(args as unknown as DictateParams);
-          case 'drafts_scan_document':
-            return await this.handleScanDocument(args as unknown as CallbackParams);
-          case 'drafts_arrange':
-            return await this.handleArrange(args as unknown as ArrangeParams);
-          case 'drafts_open':
-            return await this.handleOpenDraft(args as unknown as OpenDraftParams);
-          case 'drafts_run_action':
-            return await this.handleRunAction(args as unknown as RunActionParams);
+            return await this.handleSearch(args as any);
+          case 'drafts_get':
+            return await this.handleGetDraft(args as any);
+          case 'drafts_get_current':
+            return await this.handleGetCurrentDraft();
+          case 'drafts_create':
+            return await this.handleCreateDraft(args as any);
+          case 'drafts_run_shortcut':
+            return await this.handleRunCustomShortcut(args as any);
           default:
             throw new Error(`Unknown tool: ${name}`);
         }
@@ -101,95 +81,41 @@ class DraftsAppServer {
     });
   }
 
-  /**
-   * Execute a Drafts URL and wait for callback
-   */
-  private async executeDraftsUrl(
-    action: string,
-    params: Record<string, string | number | boolean | undefined>,
-    expectCallback: boolean = true
-  ): Promise<{ success: boolean; data?: Record<string, string>; error?: string }> {
-    // Ensure callback server is started
-    await this.callbackServer.start();
-
-    if (!expectCallback) {
-      // For actions that don't return data, just open the URL
-      const url = buildDraftsUrl(action as any, params);
-      await open(url);
-      return { success: true };
-    }
-
-    // Generate a unique callback ID
-    const callbackId = randomUUID();
-
-    // Add callback URLs to params
-    const paramsWithCallbacks = {
-      ...params,
-      'x-success': this.callbackServer.getCallbackUrl(callbackId, 'success'),
-      'x-error': this.callbackServer.getCallbackUrl(callbackId, 'error'),
-      'x-cancel': this.callbackServer.getCallbackUrl(callbackId, 'cancel'),
-    };
-
-    // Build and open the URL
-    const url = buildDraftsUrl(action as any, paramsWithCallbacks);
-    console.error(`[DraftsApp] Opening URL: ${url}`);
-    await open(url);
-
-    // Wait for callback
-    try {
-      const result = await this.callbackServer.waitForCallback(callbackId, 30000);
-
-      if (result.success) {
-        return { success: true, data: result.params };
-      } else {
-        return { success: false, error: result.error || 'Operation failed' };
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      return { success: false, error: errorMessage };
-    }
-  }
-
   private getTools(): Tool[] {
     return [
       {
-        name: 'drafts_create',
+        name: 'drafts_list',
         description:
-          'Creates a new draft in Drafts app and returns its UUID.',
+          'Lists drafts from the Drafts app. Returns an array of drafts with uuid, content preview, tags, and dates. Requires "Drafts - Get All" shortcut to be set up.',
         inputSchema: {
           type: 'object',
           properties: {
-            text: {
-              type: 'string',
-              description: 'Initial text content. Use "||clipboard||" to insert clipboard contents.',
-            },
-            prepend: {
-              type: 'string',
-              description: 'Text to prepend to the draft',
-            },
-            append: {
-              type: 'string',
-              description: 'Text to append to the draft',
-            },
-            tag: {
-              type: 'string',
-              description: 'Tag to apply to the draft',
-            },
-            action: {
-              type: 'string',
-              description: 'Action name to run after creating the draft',
-            },
-            allowEmpty: {
-              type: 'boolean',
-              description: 'Allow empty draft before running action',
+            limit: {
+              type: 'number',
+              description: 'Maximum number of drafts to return (default: 20)',
             },
           },
         },
       },
       {
+        name: 'drafts_search',
+        description:
+          'Searches for drafts matching a query. Returns matching drafts with their content. Requires "Drafts - Search" shortcut to be set up.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            query: {
+              type: 'string',
+              description: 'Search query string',
+            },
+          },
+          required: ['query'],
+        },
+      },
+      {
         name: 'drafts_get',
         description:
-          'Retrieves the content of an existing draft by UUID.',
+          'Retrieves a specific draft by UUID. Returns the full draft content and metadata. Requires "Drafts - Get by UUID" shortcut to be set up.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -204,154 +130,83 @@ class DraftsAppServer {
       {
         name: 'drafts_get_current',
         description:
-          'Gets information about the currently active draft in Drafts (uuid, url, title, content).',
+          'Gets the currently active/open draft in the Drafts app. Returns the draft content and metadata. Requires "Drafts - Get Current" shortcut to be set up.',
         inputSchema: {
           type: 'object',
           properties: {},
         },
       },
       {
-        name: 'drafts_search',
-        description: 'Searches for drafts matching a query.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            query: {
-              type: 'string',
-              description: 'Search query string',
-            },
-            tag: {
-              type: 'string',
-              description: 'Filter results by tag',
-            },
-          },
-          required: ['query'],
-        },
-      },
-      {
-        name: 'drafts_dictate',
+        name: 'drafts_create',
         description:
-          'Starts dictation and returns the transcribed text.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            locale: {
-              type: 'string',
-              description: 'Locale for dictation (e.g., "en-US", "es-ES")',
-            },
-          },
-        },
-      },
-      {
-        name: 'drafts_scan_document',
-        description:
-          'Starts document scanning and returns the scanned text.',
-        inputSchema: {
-          type: 'object',
-          properties: {},
-        },
-      },
-      {
-        name: 'drafts_arrange',
-        description:
-          'Arranges text using a template and returns the result.',
+          'Creates a new draft in the Drafts app. Returns the UUID of the created draft. Requires "Drafts - Create" shortcut to be set up.',
         inputSchema: {
           type: 'object',
           properties: {
             text: {
               type: 'string',
-              description: 'Text to arrange',
+              description: 'Content of the new draft',
             },
-            template: {
-              type: 'string',
-              description: 'Template for arrangement',
+            tags: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Array of tags to apply to the draft',
             },
           },
-          required: ['text', 'template'],
+          required: ['text'],
         },
       },
       {
-        name: 'drafts_open',
-        description: 'Opens an existing draft by UUID in the Drafts app.',
+        name: 'drafts_run_shortcut',
+        description:
+          'Runs a custom Drafts-related shortcut by name. Useful for running any custom shortcut you\'ve created. Returns the shortcut output.',
         inputSchema: {
           type: 'object',
           properties: {
-            uuid: {
+            name: {
               type: 'string',
-              description: 'UUID of the draft to open',
+              description: 'Name of the shortcut to run',
+            },
+            input: {
+              type: 'string',
+              description: 'Optional input to pass to the shortcut',
             },
           },
-          required: ['uuid'],
-        },
-      },
-      {
-        name: 'drafts_run_action',
-        description: 'Runs a named action on text content in Drafts.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            text: {
-              type: 'string',
-              description: 'Text content to run the action on',
-            },
-            action: {
-              type: 'string',
-              description: 'Name of the action to run',
-            },
-            allowEmpty: {
-              type: 'boolean',
-              description: 'Allow empty content',
-            },
-          },
-          required: ['action'],
+          required: ['name'],
         },
       },
     ];
   }
 
-  private async handleCreateDraft(params: CreateDraftParams) {
-    const result = await this.executeDraftsUrl('create', params as any, true);
+  private async handleListDrafts(args: { limit?: number }) {
+    try {
+      const result = await runShortcut({
+        name: 'Drafts - Get All',
+        outputType: 'json',
+      });
 
-    if (result.success && result.data) {
+      let drafts = Array.isArray(result) ? result : [result];
+
+      // Apply limit if specified
+      if (args.limit && args.limit > 0) {
+        drafts = drafts.slice(0, args.limit);
+      }
+
       return {
         content: [
           {
             type: 'text',
-            text: `Draft created successfully!\n\nUUID: ${result.data.uuid || result.data.text || 'N/A'}\n\nFull response: ${JSON.stringify(result.data, null, 2)}`,
+            text: `Found ${drafts.length} draft(s):\n\n${JSON.stringify(drafts, null, 2)}`,
           },
         ],
       };
-    } else {
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       return {
         content: [
           {
             type: 'text',
-            text: `Failed to create draft: ${result.error}`,
-          },
-        ],
-        isError: true,
-      };
-    }
-  }
-
-  private async handleGetDraft(params: GetDraftParams) {
-    const result = await this.executeDraftsUrl('get', params as any, true);
-
-    if (result.success && result.data) {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Draft retrieved:\n\n${result.data.text || JSON.stringify(result.data, null, 2)}`,
-          },
-        ],
-      };
-    } else {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Failed to retrieve draft: ${result.error}`,
+            text: `Failed to list drafts: ${errorMessage}\n\nMake sure you have created the "Drafts - Get All" shortcut. See SHORTCUTS_SETUP.md for instructions.`,
           },
         ],
         isError: true,
@@ -359,49 +214,31 @@ class DraftsAppServer {
     }
   }
 
-  private async handleGetCurrentDraft(params: CallbackParams) {
-    const result = await this.executeDraftsUrl('getCurrentDraft', params as any, true);
+  private async handleSearch(args: { query: string }) {
+    try {
+      const result = await runShortcut({
+        name: 'Drafts - Search',
+        input: args.query,
+        outputType: 'json',
+      });
 
-    if (result.success && result.data) {
+      const drafts = Array.isArray(result) ? result : [result];
+
       return {
         content: [
           {
             type: 'text',
-            text: `Current draft:\n\nTitle: ${result.data.title || 'N/A'}\nUUID: ${result.data.uuid || 'N/A'}\nURL: ${result.data.url || 'N/A'}\n\nContent:\n${result.data.content || result.data.text || 'No content'}`,
+            text: `Search results for "${args.query}":\n\nFound ${drafts.length} draft(s):\n\n${JSON.stringify(drafts, null, 2)}`,
           },
         ],
       };
-    } else {
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       return {
         content: [
           {
             type: 'text',
-            text: `Failed to get current draft: ${result.error}`,
-          },
-        ],
-        isError: true,
-      };
-    }
-  }
-
-  private async handleSearch(params: SearchParams) {
-    const result = await this.executeDraftsUrl('search', params as any, true);
-
-    if (result.success && result.data) {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Search results:\n\n${JSON.stringify(result.data, null, 2)}`,
-          },
-        ],
-      };
-    } else {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Search failed: ${result.error}`,
+            text: `Search failed: ${errorMessage}\n\nMake sure you have created the "Drafts - Search" shortcut. See SHORTCUTS_SETUP.md for instructions.`,
           },
         ],
         isError: true,
@@ -409,49 +246,29 @@ class DraftsAppServer {
     }
   }
 
-  private async handleDictate(params: DictateParams) {
-    const result = await this.executeDraftsUrl('dictate', params as any, true);
+  private async handleGetDraft(args: { uuid: string }) {
+    try {
+      const result = await runShortcut({
+        name: 'Drafts - Get by UUID',
+        input: args.uuid,
+        outputType: 'json',
+      });
 
-    if (result.success && result.data) {
       return {
         content: [
           {
             type: 'text',
-            text: `Dictated text:\n\n${result.data.text || JSON.stringify(result.data, null, 2)}`,
+            text: `Draft retrieved:\n\n${JSON.stringify(result, null, 2)}`,
           },
         ],
       };
-    } else {
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       return {
         content: [
           {
             type: 'text',
-            text: `Dictation failed: ${result.error}`,
-          },
-        ],
-        isError: true,
-      };
-    }
-  }
-
-  private async handleScanDocument(params: CallbackParams) {
-    const result = await this.executeDraftsUrl('scanDocument', params as any, true);
-
-    if (result.success && result.data) {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Scanned text:\n\n${result.data.text || JSON.stringify(result.data, null, 2)}`,
-          },
-        ],
-      };
-    } else {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Scan failed: ${result.error}`,
+            text: `Failed to get draft: ${errorMessage}\n\nMake sure you have created the "Drafts - Get by UUID" shortcut. See SHORTCUTS_SETUP.md for instructions.`,
           },
         ],
         isError: true,
@@ -459,49 +276,28 @@ class DraftsAppServer {
     }
   }
 
-  private async handleArrange(params: ArrangeParams) {
-    const result = await this.executeDraftsUrl('arrange', params as any, true);
+  private async handleGetCurrentDraft() {
+    try {
+      const result = await runShortcut({
+        name: 'Drafts - Get Current',
+        outputType: 'json',
+      });
 
-    if (result.success && result.data) {
       return {
         content: [
           {
             type: 'text',
-            text: `Arranged text:\n\n${result.data.text || JSON.stringify(result.data, null, 2)}`,
+            text: `Current draft:\n\n${JSON.stringify(result, null, 2)}`,
           },
         ],
       };
-    } else {
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       return {
         content: [
           {
             type: 'text',
-            text: `Arrange failed: ${result.error}`,
-          },
-        ],
-        isError: true,
-      };
-    }
-  }
-
-  private async handleOpenDraft(params: OpenDraftParams) {
-    const result = await this.executeDraftsUrl('open', params as any, false);
-
-    if (result.success) {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Draft opened successfully (UUID: ${params.uuid})`,
-          },
-        ],
-      };
-    } else {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Failed to open draft: ${result.error}`,
+            text: `Failed to get current draft: ${errorMessage}\n\nMake sure you have created the "Drafts - Get Current" shortcut. See SHORTCUTS_SETUP.md for instructions.`,
           },
         ],
         isError: true,
@@ -509,24 +305,64 @@ class DraftsAppServer {
     }
   }
 
-  private async handleRunAction(params: RunActionParams) {
-    const result = await this.executeDraftsUrl('runAction', params as any, false);
+  private async handleCreateDraft(args: { text: string; tags?: string[] }) {
+    try {
+      const input = {
+        text: args.text,
+        tags: args.tags || [],
+      };
 
-    if (result.success) {
+      const result = await runShortcut({
+        name: 'Drafts - Create',
+        input,
+        outputType: 'json',
+      });
+
       return {
         content: [
           {
             type: 'text',
-            text: `Action "${params.action}" executed successfully`,
+            text: `Draft created successfully!\n\n${JSON.stringify(result, null, 2)}`,
           },
         ],
       };
-    } else {
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       return {
         content: [
           {
             type: 'text',
-            text: `Failed to run action: ${result.error}`,
+            text: `Failed to create draft: ${errorMessage}\n\nMake sure you have created the "Drafts - Create" shortcut. See SHORTCUTS_SETUP.md for instructions.`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  private async handleRunCustomShortcut(args: { name: string; input?: string }) {
+    try {
+      const result = await runShortcut({
+        name: args.name,
+        input: args.input,
+        outputType: 'json',
+      });
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Shortcut "${args.name}" completed:\n\n${typeof result === 'string' ? result : JSON.stringify(result, null, 2)}`,
+          },
+        ],
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Failed to run shortcut "${args.name}": ${errorMessage}`,
           },
         ],
         isError: true,
@@ -535,12 +371,24 @@ class DraftsAppServer {
   }
 
   async run() {
-    // Start callback server
-    await this.callbackServer.start();
+    // Check if shortcuts are available
+    this.shortcutsAvailable = await isShortcutsAvailable();
+
+    if (!this.shortcutsAvailable) {
+      console.error(
+        '[Warning] Shortcuts CLI not available. Make sure you are running on macOS 12+ and have the Shortcuts app.'
+      );
+    } else {
+      console.error('[Shortcuts] CLI available');
+      // List available shortcuts for debugging
+      const shortcuts = await listShortcuts();
+      const draftsShortcuts = shortcuts.filter((s) => s.startsWith('Drafts -'));
+      console.error(`[Shortcuts] Found ${draftsShortcuts.length} Drafts shortcuts:`, draftsShortcuts);
+    }
 
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
-    console.error('Drafts App MCP server running on stdio with callback support');
+    console.error('Drafts App MCP server running with Apple Shortcuts integration');
   }
 }
 
