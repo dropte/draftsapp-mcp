@@ -1,0 +1,30 @@
+{
+  "name": "draftsapp-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for Drafts app x-callback-url integration",
+  "type": "module",
+  "main": "build/index.js",
+  "bin": {
+    "draftsapp-mcp": "build/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "prepare": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "drafts",
+    "x-callback-url",
+    "automation"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "typescript": "^5.7.2"
+  }
+}
