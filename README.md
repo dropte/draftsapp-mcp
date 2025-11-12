@@ -45,13 +45,28 @@ npm install
 npm run build
 ```
 
-### 2. Set Up Shortcuts
+### 2. Set Up Shortcuts (Interactive Helper Available!)
 
 **This is the key step!** You need to create shortcuts that the MCP server will call.
 
-See **[SHORTCUTS_SETUP.md](SHORTCUTS_SETUP.md)** for detailed instructions on creating the required shortcuts.
+**🚀 Quick Setup (Recommended):**
 
-**Quick summary** - Create these 5 shortcuts in the Shortcuts app:
+```bash
+npm run setup
+```
+
+This interactive script will:
+- ✓ Check which shortcuts you already have
+- ✓ Show you which ones need to be created
+- ✓ Provide quick instructions for each
+- ✓ Open the Shortcuts app for you
+- ✓ Generate template files for reference
+
+**Manual Setup:**
+
+See **[SHORTCUTS_SETUP.md](SHORTCUTS_SETUP.md)** for detailed visual instructions.
+
+**Required shortcuts** (create these 5 in the Shortcuts app):
 
 1. **"Drafts - Get All"** - Returns list of drafts as JSON
 2. **"Drafts - Search"** - Searches drafts by query
@@ -60,6 +75,13 @@ See **[SHORTCUTS_SETUP.md](SHORTCUTS_SETUP.md)** for detailed instructions on cr
 5. **"Drafts - Create"** - Creates a new draft
 
 Each shortcut is simple (3-5 actions) and uses Drafts' built-in Shortcut actions.
+
+**Template files:**
+
+```bash
+npm run setup
+# Check shortcuts/ directory for .txt templates with step-by-step instructions
+```
 
 ### 3. Test Shortcuts
 

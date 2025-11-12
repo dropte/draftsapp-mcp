@@ -10,7 +10,8 @@
   "scripts": {
     "build": "tsc",
     "watch": "tsc --watch",
-    "prepare": "npm run build"
+    "prepare": "npm run build",
+    "setup": "tsx scripts/setup.ts"
   },
   "keywords": [
     "mcp",
@@ -25,6 +26,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.1",
+    "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   },
   "engines": {
