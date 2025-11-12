@@ -2,6 +2,27 @@
 
 A Model Context Protocol (MCP) server that provides tools for interacting with the [Drafts app](https://getdrafts.com/) via its x-callback-url scheme.
 
+## Requirements
+
+- **Node.js 18 or later** (required by @modelcontextprotocol/sdk)
+- Drafts app (iOS or macOS)
+- An MCP-compatible client (e.g., Claude Desktop)
+
+### Checking Your Node Version
+
+```bash
+node --version
+```
+
+If you're using an older version of Node.js, upgrade with nvm:
+
+```bash
+# Install Node.js 20 LTS (recommended)
+nvm install 20
+nvm use 20
+nvm alias default 20
+```
+
 ## Overview
 
 This MCP server wraps the Drafts app's URL scheme functionality, allowing AI assistants and other MCP clients to:
@@ -51,6 +72,21 @@ Add to your `claude_desktop_config.json`:
   }
 }
 ```
+
+**Important:** If Claude Desktop is using an old Node.js version, you can specify the full path to a newer Node.js installation:
+
+```json
+{
+  "mcpServers": {
+    "drafts": {
+      "command": "/Users/yourusername/.nvm/versions/node/v20.x.x/bin/node",
+      "args": ["/path/to/draftsapp-mcp/build/index.js"]
+    }
+  }
+}
+```
+
+To find your Node.js path, run: `which node` (after activating the correct Node version with nvm)
 
 Or if installed globally:
 
