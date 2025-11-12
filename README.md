@@ -27,16 +27,22 @@ nvm alias default 20
 
 This MCP server wraps the Drafts app's URL scheme functionality, allowing AI assistants and other MCP clients to:
 
-- Create new drafts
-- Retrieve existing drafts
+- Create new drafts and get their UUIDs
+- Retrieve existing drafts by UUID
+- Get content from the currently active draft
 - Search drafts
-- Use dictation
-- Scan documents
+- Use dictation and get transcribed text
+- Scan documents and get OCR text
 - Arrange text with templates
 - Run actions
 - And more!
 
-All tools generate proper `drafts://x-callback-url/...` URLs that work with the Drafts app on iOS and macOS.
+The server includes a **built-in callback handler** that:
+1. Opens Drafts URLs automatically
+2. Receives x-callback-url responses via a local HTTP server
+3. Returns the actual data to your MCP client
+
+This means you get real data back (draft content, UUIDs, etc.) instead of just URL strings!
 
 ## Installation
 
@@ -252,21 +258,41 @@ drafts://x-callback-url/search?query=meeting%20notes&tag=work
 
 ## How It Works
 
-1. The MCP server exposes various Drafts operations as tools
-2. When a tool is called, it generates a properly formatted `drafts://x-callback-url/...` URL
-3. The URL is returned to the client
-4. Opening this URL launches the Drafts app and performs the requested action
-5. If callback URLs are provided, Drafts will call them with results
+1. **MCP client calls a tool** (e.g., `drafts_get_current`)
+2. **Server starts a local callback server** on an available port (e.g., `http://localhost:49597`)
+3. **Server generates a Drafts URL** with callback URLs pointing to the local server
+4. **Server opens the URL** which launches the Drafts app
+5. **Drafts performs the action** (e.g., gets the current draft)
+6. **Drafts calls back** to the local server with the results
+7. **Server receives the data** and returns it to the MCP client
+
+### Example Flow
+
+```
+MCP Client → drafts_get_current()
+    ↓
+Server generates: drafts://x-callback-url/getCurrentDraft?x-success=http://localhost:49597/callback?id=abc123
+    ↓
+Server opens URL → Drafts app opens
+    ↓
+Drafts gets current draft
+    ↓
+Drafts calls: http://localhost:49597/callback?id=abc123&uuid=XYZ&content=Hello%20World
+    ↓
+Server receives callback → Returns data to client
+    ↓
+Client gets: { uuid: "XYZ", content: "Hello World" }
+```
 
 ## x-callback-url Support
 
-All tools support the x-callback-url specification with three callback parameters:
+The server automatically handles x-callback-url callbacks:
 
-- **x-success**: Called when the action completes successfully
-- **x-error**: Called when an error occurs
-- **x-cancel**: Called when the user cancels the action
+- **x-success**: Automatically set to receive successful results
+- **x-error**: Automatically set to receive error messages
+- **x-cancel**: Automatically set to handle user cancellation
 
-The `retParam` parameter allows you to override the default return variable name for compatibility with different apps.
+All callbacks are handled internally and the appropriate data or error is returned to the MCP client.
 
 ## Development
 
